@@ -1,32 +1,35 @@
-import bob.io.audio
-import bob.bio.gmm
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 from scipy.fftpack import dct
-from scipy.signal import spectrogram
-from python_speech_features import  mfcc
-from python_speech_features import fbank
+from sklearn.naive_bayes import GaussianNB
 from python_speech_features import sigproc
 import os.path
 
 people = 38
-audio_by_person = 10
+audio_by_person = 7
 NFFT = 4095
 nfilt = 40
 sample_rate = 32000 # 32kHz = 32000
-window_size = 0.020 * sample_rate # 20ms * sample_rate
-window_step = 0.010 * sample_rate # 10ms * sample_rate
+frame_len = 0.020 * sample_rate # 20ms * sample_rate
+frame_step = 0.010 * sample_rate # 10ms * sample_rate
 num_ceps = 37
 
 def read_data():
+    teste = 0.0
     directory = "/home/levy/VidTIMIT/Person"
     for i in range(1, people+1):
         for j in range(1, audio_by_person+1):
             direc = directory + str(i) + "/audio/" + str(j) + ".wav"
-            my_file = os.path.isfile(direc)
-            print(my_file," ", str(i), "  ", str(j))
+            rate, signal = wavfile.read(direc)
+            mfccs = compute_mfccs(signal)
+            row, col = mfccs.shape
+            teste += float(col)
+            print(mfccs.shape, "  /  ", i, " - ", j)
+    print(teste)
+
+
 
 
 def pre_emphasis(signal):
@@ -35,7 +38,7 @@ def pre_emphasis(signal):
 #the signal can be emphatized or not
 #window lenght, window step and sample rate(kHz)) must be in seconds.
 
-def enframe_signal(signal, window_size, window_step, sample_rate):
+def enframe_signal(signal, window_size = frame_len, window_step = frame_step, sample_rate = sample_rate):
     frames = sigproc.framesig(signal, window_size, window_step)
     n_frames, frame_lenght = frames.shape  #return N_frames x number of samples per window
     #applying hamming window
@@ -46,14 +49,13 @@ def enframe_signal(signal, window_size, window_step, sample_rate):
 def magspec(frames, NFFT):
     #Compute the magnitude spectrum of each frame in frames.
     complex_spec = np.fft.rfft(frames, NFFT)
-    print(complex_spec.shape)
     return np.absolute(complex_spec)
 
 def power_spec(frames, NFFT):
     #Compute the power spectrum of each frame (frame as rows)
-    return 1.0/ (sample_rate*window_size) * np.square(magspec(frames, NFFT))
+    return 1.0/ (sample_rate*frame_len) * np.square(magspec(frames, NFFT))
 
-def fft_and_filterbank(frames, NFFT, nfilt, sample_rate):
+def fft_and_filterbank(frames, NFFT = NFFT, nfilt = nfilt, sample_rate = sample_rate):
     mag_frames = magspec(frames, NFFT) #np.absolute(np.fft.rfft(frames, NFFT))  # Magnitude of the FFT
     pow_frames = power_spec(frames, NFFT)#((1.0 / window_size) * ((mag_frames) ** 2))  # Power Spectrum
 
@@ -76,23 +78,25 @@ def fft_and_filterbank(frames, NFFT, nfilt, sample_rate):
         for k in range(f_m, f_m_plus):
             fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
 
-    plt.plot(freqs, fbank.T)
+    '''plt.plot(freqs, fbank.T)
     plt.title("Filters")
     plt.grid(True)
-    plt.show()
+    plt.show()'''
     filter_banks = np.dot(pow_frames, fbank.T) #Compute filterbank energies
     filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)  # Numerical Stability
     #filter_banks = np.log(filter_banks)
     filter_banks = 20 * np.log10(filter_banks)  # dB
 
-    plt.imshow(np.flipud(filter_banks.T))
+    '''plt.imshow(np.flipud(filter_banks.T))
     plt.title("Filter bank")
-    plt.show()
+    plt.show()'''
     return filter_banks
 
 #number 2-n_ceps are retained and the rest are descarted
-def compute_mfccs(filter_banks, num_ceps):
-    mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]  # Keep 2-N_ceps
+def compute_mfccs(signal, window_size = frame_len, window_step = frame_step ,sample_rate = sample_rate,NFFT = NFFT,nceps = num_ceps):
+    features = enframe_signal(signal) #Enframe and apply hamming window
+    features = fft_and_filterbank(features)
+    mfcc = dct(features, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]  # Keep 2-N_ceps
     return mfcc
 #---------------------------------------------------------------------------
 
@@ -226,13 +230,17 @@ def compute_melmat(num_mel_bands=12, freq_min=64, freq_max=8000,
     return melmat, (center_frequencies_mel, freqs)
 #----------------------------------------------------------------------------
 
-read_data()
+# read_data()
 
-'''
+
 diretorio = "/home/levy/mcem0_sa1.wav"
 
-sample_rate, signal = wavfile.read(diretorio)
+read_data()
+'''rate, signal = wavfile.read(diretorio)
+mfccs = compute_mfccs(signal)
+print(mfccs.shape)'''
 
+'''
 frames = enframe_signal(signal, window_size, window_step, sample_rate)
 filter_banks =  fft_and_filterbank(frames, NFFT, nfilt, sample_rate)
 mfccs = compute_mfccs(filter_banks, 37)
