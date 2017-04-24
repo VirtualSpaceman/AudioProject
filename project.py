@@ -1,37 +1,42 @@
 import numpy as np
-import scipy
+from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 from scipy.io import wavfile
 from scipy.fftpack import dct
-from sklearn.naive_bayes import GaussianNB
+from sklearn.mixture import GaussianMixture
 from python_speech_features import sigproc
-import os.path
+from bob.learn import em
 
-people = 38
-audio_by_person = 7
+people = 5   #38
+audio_by_person = 5   #7
 NFFT = 4095
 nfilt = 40
 sample_rate = 32000 # 32kHz = 32000
 frame_len = 0.020 * sample_rate # 20ms * sample_rate
 frame_step = 0.010 * sample_rate # 10ms * sample_rate
 num_ceps = 37
+gmmList = []
+gaussianMix = 12
 
 def read_data():
-    teste = 0.0
+    train = np.empty(shape=(0, num_ceps))
     directory = "/home/levy/VidTIMIT/Person"
     for i in range(1, people+1):
+        teste = np.empty(shape=(0, num_ceps))
         for j in range(1, audio_by_person+1):
             direc = directory + str(i) + "/audio/" + str(j) + ".wav"
             rate, signal = wavfile.read(direc)
             mfccs = compute_mfccs(signal)
-            row, col = mfccs.shape
-            teste += float(col)
+            teste = np.append(teste, mfccs, axis=0)
+            train = np.append(train, mfccs, axis=0)
             print(mfccs.shape, "  /  ", i, " - ", j)
-    print(teste)
-
-
-
-
+            kmeans = em.KMeansMachine(gaussianMix, num_ceps)
+        em.train(em.KMeansTrainer(), kmeans, teste, max_iterations=500, convergence_threshold=1e-3)  # initialize the mean
+        gmm = em.GMMMachine(gaussianMix, num_ceps)#Create a machine with (gaussianMix) Gaussian and feature dimensionality num_ceps
+        gmm.means = kmeans.means
+        em.train(em.ML_GMMTrainer(True, True, True), gmm, teste, max_iterations=500, convergence_threshold=1e-3)
+        gmmList.append(gmm)
+    return train
 def pre_emphasis(signal):
     emphasized_signal = np.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
     return emphasized_signal
@@ -84,8 +89,8 @@ def fft_and_filterbank(frames, NFFT = NFFT, nfilt = nfilt, sample_rate = sample_
     plt.show()'''
     filter_banks = np.dot(pow_frames, fbank.T) #Compute filterbank energies
     filter_banks = np.where(filter_banks == 0, np.finfo(float).eps, filter_banks)  # Numerical Stability
-    #filter_banks = np.log(filter_banks)
-    filter_banks = 20 * np.log10(filter_banks)  # dB
+    filter_banks = np.log(filter_banks)
+    #filter_banks = 20 * np.log10(filter_banks)  # dB
 
     '''plt.imshow(np.flipud(filter_banks.T))
     plt.title("Filter bank")
@@ -230,15 +235,49 @@ def compute_melmat(num_mel_bands=12, freq_min=64, freq_max=8000,
     return melmat, (center_frequencies_mel, freqs)
 #----------------------------------------------------------------------------
 
-# read_data()
+
+'''var = multivariate_normal(mean=[0,0], cov=[[1,0],[0,1]])
+print(var.pdf([1,0]))'''
 
 
-diretorio = "/home/levy/mcem0_sa1.wav"
+list_mfccs = np.empty( shape= (0, num_ceps))
+list_mfccs = read_data()
+print(list_mfccs.shape)
 
-read_data()
-'''rate, signal = wavfile.read(diretorio)
-mfccs = compute_mfccs(signal)
-print(mfccs.shape)'''
+kmeans = em.KMeansMachine(gaussianMix, num_ceps)
+gmmMachine = em.GMMMachine(gaussianMix, num_ceps)
+em.train(em.KMeansTrainer(), kmeans, list_mfccs, max_iterations=500, convergence_threshold= 1e-3)
+gmmMachine.means = kmeans.means
+# update means/variances/weights at each iteration
+
+trainer = em.MAP_GMMTrainer(gmmMachine, update_means=True, update_variances=True, update_weights=True) # mean adaptation only
+gmmAdapted = em.GMMMachine(gaussianMix, num_ceps) #Create a new machine for the MAP estimate
+em.train(trainer, gmmAdapted, list_mfccs, max_iterations=500, convergence_threshold=1e-3)
+
+
+
+
+diretorio = "/home/levy/VidTIMIT/Person3/audio/9.wav"
+rate, signal = wavfile.read(diretorio)
+test = compute_mfccs(signal)
+
+'''
+kmeans = em.KMeansMachine(16, num_ceps)
+kmeansTrainer = em.KMeansTrainer()
+em.train(kmeansTrainer, kmeans, test, max_iterations = 500, convergence_threshold = 1e-3) # Train the KMeansMachine
+
+
+# TENTA INICIALIZAR OS PARAMATROS COM O KMEANS DO BOB E TESTAR COM O GMM DO SKLEARN
+# FAZER O MAP (12-14) E PAG 20 DO SANDERSON. ALGORITMO MAP DO BOB. TENTAR CONSEGUIR AS MATRIZES DO MAP
+#ME SINTO PERDIDO E ESPERO ESTAR FAZENDO A COISA CERTA. ESPERO QUE EU ESTEJA ENTENDENDO O QUE É PARA FAZER
+#, POIS AS VEZES ME PERCO E  NÃO SEI ONDE ESTOU. ME AJUDA DEUS
+
+gmm = em.GMMMachine(16 , num_ceps)
+gmm.means = kmeans.means
+trainer = em.ML_GMMTrainer(True, True, True) # update means/variances/weights at each iteration
+em.train(trainer, gmm, test, max_iterations = 500, convergence_threshold = 1e-3)
+print(gmm.get_gaussian(0).variance)
+'''
 
 '''
 frames = enframe_signal(signal, window_size, window_step, sample_rate)
